@@ -74,22 +74,27 @@ function formatDate(date) {
 
 async function renameFiles(folderPath, newName) {
   const files = await fs.readdir(folderPath);
-  const promises = [];
   console.log('Renaming files...');
 
-  for (let i = 0; i < files.length; i++) {
-    const file = files[i];
-    const ext = path.extname(file).toLowerCase();
-    const oldPath = path.join(folderPath, file);
-    const newFileName = await replaceModifiedAt(newName, oldPath);
-    const newPath = path.join(folderPath, `${newFileName} - ${i + 1}${ext}`);
-
-    promises.push(rename(oldPath, newPath));
-  }
-
+  const { names, totalOccurrencesByName } = await getTotalOccurrencesByName(files, folderPath, newName);
+  const promises = renameFilesWithIndex(files, folderPath, names, totalOccurrencesByName);
   await Promise.all(promises);
+
   const filePluralSingular = files.length > 1 ? 'files' : 'file';
   console.log(`Successfully renamed ${promises.length} ${filePluralSingular}.`);
+}
+
+async function getTotalOccurrencesByName(files, folderPath, newName) {
+  const names = [];
+  const totalOccurrencesByName = {};
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    const oldPath = path.join(folderPath, file);
+    const newNameWithDate = await replaceModifiedAt(newName, oldPath);
+    names.push(newNameWithDate);
+    incrementNameOccurrence(newNameWithDate, totalOccurrencesByName);
+  }
+  return { names, totalOccurrencesByName };
 }
 
 async function replaceModifiedAt(name, filePath) {
@@ -98,6 +103,40 @@ async function replaceModifiedAt(name, filePath) {
     return name.replace('{modifiedAt}', formatDate(modifiedAtDate));
   }
   return name;
+}
+
+function incrementNameOccurrence(name, nameOccurrences) {
+  if (nameOccurrences[name]) {
+    nameOccurrences[name]++;
+  } else {
+    nameOccurrences[name] = 1;
+  }
+}
+
+function renameFilesWithIndex(files, folderPath, names, totalOccurrencesByName) {
+  const promises = [];
+  const currentOccurrenceByName = {};
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    const newName = names[i];
+    incrementNameOccurrence(newName, currentOccurrenceByName);
+    const newNameWithIndex = getNewNameWithIndex(newName, totalOccurrencesByName, currentOccurrenceByName);
+    const ext = path.extname(file).toLowerCase();
+    const newPath = path.join(folderPath, `${newNameWithIndex}${ext}`);
+
+    const oldPath = path.join(folderPath, file);
+    promises.push(rename(oldPath, newPath));
+  }
+  return promises;
+}
+
+function getNewNameWithIndex(name, totalNameOccurrences, currentNameOccurrence) {
+  const occurrenceCount = totalNameOccurrences[name] ?? 1;
+  if (occurrenceCount === 1) {
+    return name;
+  } else {
+    return `${name} - ${currentNameOccurrence[name] ?? 1}`;
+  }
 }
 
 async function rename(oldPath, newPath) {
